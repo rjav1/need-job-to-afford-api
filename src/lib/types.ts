@@ -120,7 +120,11 @@ export interface Settings {
   noAiMode: boolean;  // Use only templates, no API calls
   preferTemplates: boolean;  // Try templates before AI to save costs
   testMode: boolean;  // Discord-based testing mode (Ronald responds)
+  webhookEnabled: boolean;  // Send Discord webhook on successful fill
+  webhookUrl: string;  // Custom webhook URL (optional)
 }
+
+export const DEFAULT_WEBHOOK_URL = 'https://discord.com/api/webhooks/1470479336296419419/j4NJFVqVzBq9OScJC5YVdJn9k8GlmvzEWUOajYOSrQal3kga2afu_PiH9eyqv8oDD9iC';
 
 export const DEFAULT_SETTINGS: Settings = {
   aiProvider: 'openai',
@@ -130,6 +134,8 @@ export const DEFAULT_SETTINGS: Settings = {
   noAiMode: false,
   preferTemplates: true,
   testMode: false,
+  webhookEnabled: true,
+  webhookUrl: DEFAULT_WEBHOOK_URL,
 };
 
 export const DEFAULT_PROFILE: UserProfile = {

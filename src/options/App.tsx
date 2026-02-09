@@ -505,6 +505,31 @@ export default function App() {
               <label htmlFor="darkMode">Dark mode</label>
             </div>
 
+            <h3>Notifications</h3>
+            <div className="form-group checkbox">
+              <input 
+                type="checkbox" 
+                id="webhookEnabled"
+                checked={(settings as any).webhookEnabled}
+                onChange={(e) => setSettings({ ...settings, webhookEnabled: e.target.checked } as any)}
+              />
+              <label htmlFor="webhookEnabled">🔔 Discord Webhook Notifications</label>
+            </div>
+            <p className="hint" style={{ marginBottom: '12px', marginLeft: '28px' }}>
+              Get notified in Discord when you successfully fill a job application.
+            </p>
+            <div className="form-group">
+              <label htmlFor="webhookUrl">Custom Webhook URL (optional)</label>
+              <input
+                type="text"
+                id="webhookUrl"
+                value={(settings as any).webhookUrl || ''}
+                onChange={(e) => setSettings({ ...settings, webhookUrl: e.target.value } as any)}
+                placeholder="https://discord.com/api/webhooks/..."
+              />
+              <p className="hint">Leave empty to use the default webhook.</p>
+            </div>
+
             <h3>Data</h3>
             <button 
               className="danger-btn"

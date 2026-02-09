@@ -2,6 +2,7 @@ import { DetectedField, UserProfile, FieldType } from '../lib/types';
 import { storage } from '../lib/storage';
 import { generateAIResponse, TestModeError } from '../lib/ai';
 import { detectJobInfo } from './detector';
+import { sendWebhookNotification, extractJobInfo } from '../lib/webhook';
 
 // Fill a single field with the appropriate value
 export async function fillField(
@@ -447,6 +448,28 @@ export async function fillAllFields(
     
     // Small delay between fields to avoid rate limiting / detection
     await sleep(100);
+  }
+  
+  // Send webhook notification if enabled
+  try {
+    const settings = await storage.getSettings();
+    if (settings.webhookEnabled) {
+      const jobInfo = extractJobInfo();
+      const totalFields = fields.filter(f => f.fieldType !== 'unknown' && f.element.type !== 'file').length;
+      
+      await sendWebhookNotification({
+        jobTitle: jobInfo.jobTitle || 'Unknown Position',
+        company: jobInfo.company || 'Unknown Company',
+        url: window.location.href,
+        fieldsFilledCount: filled,
+        totalFields: totalFields,
+        timestamp: new Date().toISOString(),
+        status: failed.length === 0 ? 'success' : filled > 0 ? 'partial' : 'error',
+        errorMessage: failed.length > 0 ? `Failed fields: ${failed.join(', ')}` : undefined
+      }, settings.webhookUrl || undefined);
+    }
+  } catch (error) {
+    console.log('[AI Job Applier] Webhook notification error:', error);
   }
   
   return { filled, failed };
