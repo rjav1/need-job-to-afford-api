@@ -12,7 +12,12 @@ export async function fillField(
   const value = getFieldValue(field.fieldType, profile);
   
   if (value !== null) {
-    setInputValue(field.element, value);
+    // Use AI-driven selection for dropdowns
+    if (field.element instanceof HTMLSelectElement) {
+      await setInputValueAsync(field.element, value, field.label);
+    } else {
+      setInputValue(field.element, value);
+    }
     return true;
   }
   
@@ -198,40 +203,22 @@ function getFieldValue(fieldType: FieldType, profile: UserProfile): string | nul
   return mapping[fieldType] || null;
 }
 
-// Smart fallback mappings for common fields
-const SMART_FALLBACKS: Record<string, string[]> = {
-  // Major fallbacks
-  'computer engineering': ['computer science', 'electrical engineering', 'software engineering', 'engineering'],
-  'software engineering': ['computer science', 'computer engineering', 'information technology'],
-  'data science': ['computer science', 'statistics', 'mathematics', 'applied mathematics'],
-  'information systems': ['information technology', 'computer science', 'business'],
-  
-  // Degree fallbacks  
-  'bachelor of science': ['bs', 'b.s.', 'bachelors', 'undergraduate'],
-  'bachelor of arts': ['ba', 'b.a.', 'bachelors', 'undergraduate'],
-  'master of science': ['ms', 'm.s.', 'masters', 'graduate'],
-  
-  // Work auth fallbacks
-  'us citizen': ['citizen', 'authorized', 'yes', 'no sponsorship required'],
-  'permanent resident': ['green card', 'authorized', 'yes', 'no sponsorship required'],
-  
-  // Yes/No smart answers
-  'yes': ['true', '1', 'agree', 'accept'],
-  'no': ['false', '0', 'disagree', 'decline'],
-};
-
-// Find best matching option in a select dropdown
-function findBestOption(options: HTMLOptionElement[], targetValue: string): HTMLOptionElement | null {
+// AI-driven dropdown selection - no hardcoded fallbacks
+async function findBestOptionWithAI(
+  options: HTMLOptionElement[], 
+  targetValue: string,
+  fieldLabel: string
+): Promise<HTMLOptionElement | null> {
   const target = targetValue.toLowerCase().trim();
   
-  // 1. Exact match
+  // 1. Exact match (no AI needed)
   let match = options.find(opt => 
     opt.value.toLowerCase() === target || 
     opt.text.toLowerCase() === target
   );
   if (match) return match;
   
-  // 2. Contains match
+  // 2. Contains match (no AI needed)
   match = options.find(opt => 
     opt.value.toLowerCase().includes(target) ||
     opt.text.toLowerCase().includes(target) ||
@@ -240,18 +227,55 @@ function findBestOption(options: HTMLOptionElement[], targetValue: string): HTML
   );
   if (match) return match;
   
-  // 3. Smart fallbacks
-  const fallbacks = SMART_FALLBACKS[target] || [];
-  for (const fallback of fallbacks) {
-    match = options.find(opt => 
-      opt.value.toLowerCase().includes(fallback) ||
-      opt.text.toLowerCase().includes(fallback)
-    );
-    if (match) return match;
+  // 3. AI-driven selection for non-obvious matches
+  const optionTexts = options.map((opt, i) => `${i}: ${opt.text}`).join('\n');
+  
+  try {
+    const settings = await storage.getSettings();
+    const apiKey = await storage.getApiKey();
+    
+    if (!apiKey && !(settings as any).testMode) {
+      // Fallback to fuzzy match if no AI available
+      return fuzzyMatch(options, target);
+    }
+    
+    const prompt = `You are helping fill a job application form.
+
+Field: "${fieldLabel}"
+User's value: "${targetValue}"
+
+Available dropdown options:
+${optionTexts}
+
+Which option number (0-${options.length - 1}) is the BEST match for the user's value? 
+Consider semantic similarity - e.g., "Computer Engineering" could match "Computer Science" or "Electrical Engineering".
+For yes/no questions, match appropriately.
+
+Reply with ONLY the option number, nothing else. If no good match exists, reply "NONE".`;
+
+    const response = await callAIForDropdown(apiKey, prompt, settings.aiProvider);
+    const trimmed = response.trim();
+    
+    if (trimmed === 'NONE') {
+      return fuzzyMatch(options, target);
+    }
+    
+    const index = parseInt(trimmed, 10);
+    if (!isNaN(index) && index >= 0 && index < options.length) {
+      console.log(`[AI Job Applier] AI selected option ${index}: "${options[index].text}" for value "${targetValue}"`);
+      return options[index];
+    }
+  } catch (error) {
+    console.log('[AI Job Applier] AI dropdown selection failed, using fuzzy match:', error);
   }
   
-  // 4. Fuzzy match - find option with most word overlap
-  const targetWords = target.split(/\s+/);
+  // Fallback to fuzzy match
+  return fuzzyMatch(options, target);
+}
+
+// Simple fuzzy match as fallback
+function fuzzyMatch(options: HTMLOptionElement[], target: string): HTMLOptionElement | null {
+  const targetWords = target.toLowerCase().split(/\s+/);
   let bestMatch: HTMLOptionElement | null = null;
   let bestScore = 0;
   
@@ -265,24 +289,83 @@ function findBestOption(options: HTMLOptionElement[], targetValue: string): HTML
     }
   }
   
-  if (bestScore > 0) return bestMatch;
+  return bestScore > 0 ? bestMatch : null;
+}
+
+// Quick AI call for dropdown selection
+async function callAIForDropdown(apiKey: string, prompt: string, provider: string): Promise<string> {
+  if (provider === 'anthropic') {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await response.json();
+    return data.content[0].text;
+  } else {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 10,
+      }),
+    });
+    const data = await response.json();
+    return data.choices[0].message.content;
+  }
+}
+
+// Sync version for backward compatibility (uses fuzzy only)
+function findBestOption(options: HTMLOptionElement[], targetValue: string): HTMLOptionElement | null {
+  const target = targetValue.toLowerCase().trim();
   
-  return null;
+  // Exact match
+  let match = options.find(opt => 
+    opt.value.toLowerCase() === target || 
+    opt.text.toLowerCase() === target
+  );
+  if (match) return match;
+  
+  // Contains match
+  match = options.find(opt => 
+    opt.value.toLowerCase().includes(target) ||
+    opt.text.toLowerCase().includes(target) ||
+    target.includes(opt.value.toLowerCase()) ||
+    target.includes(opt.text.toLowerCase())
+  );
+  if (match) return match;
+  
+  // Fuzzy match
+  return fuzzyMatch(options, target);
 }
 
 // Set value on input element (handles different input types)
-function setInputValue(
+async function setInputValueAsync(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, 
-  value: string
-): void {
+  value: string,
+  fieldLabel: string = ''
+): Promise<void> {
   // Dispatch events to trigger any validation/listeners
   const inputEvent = new Event('input', { bubbles: true });
   const changeEvent = new Event('change', { bubbles: true });
   
   if (element instanceof HTMLSelectElement) {
-    // For select, use smart matching
+    // For select, use AI-driven matching
     const options = Array.from(element.options).filter(opt => opt.value); // exclude empty options
-    const match = findBestOption(options, value);
+    const match = await findBestOptionWithAI(options, value, fieldLabel);
     if (match) {
       element.value = match.value;
       console.log(`[AI Job Applier] Selected "${match.text}" for value "${value}"`);
@@ -297,15 +380,39 @@ function setInputValue(
   element.dispatchEvent(changeEvent);
   
   // For React apps, we might need to trigger React's synthetic events
-  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-    element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 
-    'value'
-  )?.set;
-  
-  if (nativeInputValueSetter) {
-    nativeInputValueSetter.call(element, value);
-    element.dispatchEvent(new Event('input', { bubbles: true }));
+  if (!(element instanceof HTMLSelectElement)) {
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 
+      'value'
+    )?.set;
+    
+    if (nativeInputValueSetter) {
+      nativeInputValueSetter.call(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
   }
+}
+
+// Sync version for simple fields (backward compatibility)
+function setInputValue(
+  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, 
+  value: string
+): void {
+  const inputEvent = new Event('input', { bubbles: true });
+  const changeEvent = new Event('change', { bubbles: true });
+  
+  if (element instanceof HTMLSelectElement) {
+    const options = Array.from(element.options).filter(opt => opt.value);
+    const match = findBestOption(options, value);
+    if (match) {
+      element.value = match.value;
+    }
+  } else {
+    element.value = value;
+  }
+  
+  element.dispatchEvent(inputEvent);
+  element.dispatchEvent(changeEvent);
 }
 
 // Fill all detected fields
