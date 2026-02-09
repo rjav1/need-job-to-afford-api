@@ -1,5 +1,22 @@
 // Background service worker for AI Job Applier
 
+import { initTabHandler, setupTabHandlerMessages } from '../lib/tab-handler';
+
+// Initialize tab handler for multi-tab management (OAuth, external forms)
+const tabHandler = initTabHandler({
+  autoCloseOnSuccess: true,
+  returnToOrigin: true,
+  oauthTimeout: 120000,
+});
+
+// Setup message handlers for tab operations
+setupTabHandlerMessages();
+
+// Log tab events for debugging
+tabHandler.onEvent((event) => {
+  console.log(`[TabHandler Event] ${event.type}`, event.session?.id, event.data);
+});
+
 // Handle extension installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {

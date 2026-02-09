@@ -1,0 +1,45 @@
+ALEX JOHNSON
+alex.johnson.test2026@gmail.com | 555-867-5309 | Atlanta, GA
+
+EDUCATION
+Georgia Institute of Technology                                     Expected May 2026
+Bachelor of Science in Computer Science
+GPA: 3.7/4.0
+Relevant Coursework: Data Structures & Algorithms, Object-Oriented Programming, 
+Database Systems, Software Engineering, Machine Learning, Operating Systems
+
+SKILLS
+Programming Languages: Python, Java, JavaScript, TypeScript, C++, SQL
+Frameworks & Tools: React, Node.js, Express, Django, Git, Docker, AWS
+Databases: PostgreSQL, MongoDB, MySQL
+
+EXPERIENCE
+Software Engineering Intern                                         Summer 2025
+Tech Startup Inc. | Atlanta, GA
+- Developed RESTful APIs using Python and Django, improving response times by 30%
+- Implemented automated testing suite achieving 85% code coverage
+- Collaborated with team of 5 engineers using Agile methodologies
+
+Teaching Assistant - CS 1332 Data Structures                       Fall 2024 - Present
+Georgia Institute of Technology | Atlanta, GA
+- Lead weekly recitation sections for 30+ students
+- Hold office hours and grade assignments for data structures course
+
+PROJECTS
+Personal Finance Tracker                                            2024
+- Built full-stack web application using React, Node.js, and PostgreSQL
+- Implemented secure user authentication and data visualization features
+- Deployed on AWS with CI/CD pipeline using GitHub Actions
+
+Machine Learning Stock Predictor                                    2024
+- Developed LSTM neural network model for stock price prediction
+- Achieved 78% directional accuracy on test dataset
+- Used Python, TensorFlow, and pandas for data processing
+
+ACTIVITIES
+- Member, Georgia Tech Computer Science Club
+- Volunteer, Code.org Hour of Code initiative
+- Hackathon participant, HackGT (3rd place, 2024)
+
+WORK AUTHORIZATION
+Authorized to work in the United States (US Citizen)
