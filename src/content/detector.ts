@@ -1,6 +1,19 @@
 import { DetectedField, FieldType } from '../lib/types';
+import { 
+  detectFormsUniversally, 
+  smartDetectField,
+  UniversalDetectionResult,
+  getSiteStats,
+  learnFromCorrection,
+  analyzePageWithVision
+} from '../lib/universal-form-detector';
+import { initBuiltinPatterns, formMemory, BUILTIN_PATTERNS } from '../lib/form-memory';
+import { analyzeDOMForForms, getDOMSnapshot } from '../lib/dom-analyzer';
 
-// Field detection patterns
+// Initialize built-in patterns on load
+initBuiltinPatterns().catch(console.error);
+
+// Field detection patterns (legacy - kept for fast fallback)
 const FIELD_PATTERNS: Record<FieldType, RegExp[]> = {
   firstName: [/first\s*name/i, /given\s*name/i, /fname/i, /^first$/i],
   lastName: [/last\s*name/i, /surname/i, /family\s*name/i, /lname/i, /^last$/i],
@@ -95,7 +108,7 @@ function getLabelText(element: HTMLElement): string {
   return '';
 }
 
-// Main detection function
+// Main detection function - uses fast regex-based detection
 export function detectFormFields(): DetectedField[] {
   const fields: DetectedField[] = [];
   
@@ -127,6 +140,69 @@ export function detectFormFields(): DetectedField[] {
   }
   
   return fields;
+}
+
+// Universal detection function - handles any site including custom components
+export async function detectFormFieldsUniversal(): Promise<UniversalDetectionResult> {
+  return detectFormsUniversally();
+}
+
+// Hybrid detection - fast first, then universal fallback for unknowns
+export async function detectFormFieldsHybrid(): Promise<DetectedField[]> {
+  // Start with fast regex-based detection
+  const fastFields = detectFormFields();
+  
+  // Count unknown fields
+  const unknownCount = fastFields.filter(f => f.fieldType === 'unknown').length;
+  const lowConfidenceCount = fastFields.filter(f => f.confidence < 0.5).length;
+  
+  // If too many unknowns or low confidence, use universal detection
+  if (unknownCount > fastFields.length * 0.3 || lowConfidenceCount > fastFields.length * 0.4) {
+    console.log('[Detector] Many unknowns, switching to universal detection');
+    const universalResult = await detectFormsUniversally();
+    
+    // Merge results, preferring higher confidence
+    const mergedFields: DetectedField[] = [];
+    
+    for (const uField of universalResult.fields) {
+      // Find matching fast field
+      const fastField = fastFields.find(f => f.element === uField.element);
+      
+      if (fastField && fastField.confidence > uField.confidence) {
+        mergedFields.push(fastField);
+      } else {
+        mergedFields.push(uField);
+      }
+    }
+    
+    // Add any fast fields not in universal results
+    for (const fField of fastFields) {
+      if (!mergedFields.some(m => m.element === fField.element)) {
+        mergedFields.push(fField);
+      }
+    }
+    
+    return mergedFields;
+  }
+  
+  // For fields still unknown, try smart detection individually
+  const enhancedFields = await Promise.all(
+    fastFields.map(async (field) => {
+      if (field.fieldType === 'unknown' || field.confidence < 0.5) {
+        const smartResult = await smartDetectField(field.element);
+        if (smartResult.confidence > field.confidence) {
+          return {
+            ...field,
+            fieldType: smartResult.type,
+            confidence: smartResult.confidence,
+          };
+        }
+      }
+      return field;
+    })
+  );
+  
+  return enhancedFields;
 }
 
 // Check if element is visible
@@ -184,4 +260,77 @@ export function detectOpenEndedQuestions(): DetectedField[] {
     f.fieldType === 'openEnded' || 
     (f.element.tagName === 'TEXTAREA' && f.label.length > 15)
   );
+}
+
+// Re-export types and functions for convenience
+export type { UniversalDetectionResult };
+export { 
+  learnFromCorrection, 
+  getSiteStats,
+  analyzePageWithVision,
+  formMemory, 
+  BUILTIN_PATTERNS,
+  analyzeDOMForForms, 
+  getDOMSnapshot 
+};
+
+// Get detection summary for debugging/display
+export async function getDetectionSummary(): Promise<{
+  totalFields: number;
+  knownFields: number;
+  unknownFields: number;
+  averageConfidence: number;
+  isKnownSite: boolean;
+  atsType?: string;
+  siteStats: { knownFields: number; successRate: number; applicationCount: number } | null;
+}> {
+  const result = await detectFormsUniversally();
+  const stats = await getSiteStats();
+  
+  const knownFields = result.fields.filter(f => f.fieldType !== 'unknown');
+  const unknownFields = result.fields.filter(f => f.fieldType === 'unknown');
+  
+  return {
+    totalFields: result.fields.length,
+    knownFields: knownFields.length,
+    unknownFields: unknownFields.length,
+    averageConfidence: result.confidence,
+    isKnownSite: result.isKnownSite,
+    atsType: result.atsType,
+    siteStats: stats,
+  };
+}
+
+// Check if current page is a job application
+export function isJobApplicationPage(): boolean {
+  const url = window.location.href.toLowerCase();
+  const pageText = document.body.textContent?.toLowerCase() || '';
+  
+  // URL patterns
+  const urlPatterns = [
+    /apply/i, /application/i, /career/i, /job/i, /position/i,
+    /greenhouse/i, /lever/i, /workday/i, /icims/i, /taleo/i, /jobvite/i
+  ];
+  
+  if (urlPatterns.some(p => p.test(url))) return true;
+  
+  // Page content patterns
+  const contentPatterns = [
+    /apply\s*(now|today|here)/i,
+    /job\s*application/i,
+    /submit.*application/i,
+    /upload.*resume/i,
+    /cover\s*letter/i,
+    /work\s*authorization/i,
+    /years?\s*of\s*experience/i
+  ];
+  
+  if (contentPatterns.some(p => p.test(pageText))) return true;
+  
+  // Form detection - if we find common job application fields
+  const fields = detectFormFields();
+  const jobFieldTypes: FieldType[] = ['resume', 'coverLetter', 'workAuthorization', 'yearsOfExperience'];
+  const hasJobFields = fields.some(f => jobFieldTypes.includes(f.fieldType));
+  
+  return hasJobFields;
 }
