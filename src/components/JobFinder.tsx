@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { FilterSliders, FilterWeights, DEFAULT_FILTER_WEIGHTS } from './FilterSliders';
 import { CompanyPicker } from './CompanyPicker';
 import { JobList } from './JobList';
 import { 
-  HeartbeatManager, 
   HeartbeatConfig, 
   HeartbeatResult,
   JobPosting, 
@@ -35,7 +34,7 @@ export function JobFinder({ onNavigateToApplication }: JobFinderProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [lastPulse, setLastPulse] = useState<Date | null>(null);
   const [applicationLogs, setApplicationLogs] = useState<ApplicationRecord[]>([]);
-  const [pulseResults, setPulseResults] = useState<HeartbeatResult[]>([]);
+  const [, setPulseResults] = useState<HeartbeatResult[]>([]);
 
   // Load data on mount
   useEffect(() => {

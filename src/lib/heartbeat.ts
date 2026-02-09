@@ -257,9 +257,9 @@ export class HeartbeatManager {
   /**
    * Fetch jobs for a company (placeholder - extend with actual scraping/API calls)
    */
-  private async fetchJobsForCompany(company: Company): Promise<JobPosting[]> {
+  private async fetchJobsForCompany(_company: Company): Promise<JobPosting[]> {
     // This is a placeholder. In production, this would:
-    // 1. Scrape company careers pages
+    // 1. Scrape company careers pages using _company.careersUrl
     // 2. Query job board APIs
     // 3. Use a job aggregation service
     

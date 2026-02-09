@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { JobPosting } from '../lib/heartbeat';
 import { FilterWeights } from './FilterSliders';
 
 interface JobListProps {
   jobs: JobPosting[];
   filterWeights: FilterWeights;
-  selectedIndustries: string[];
+  selectedIndustries?: string[];
   onApply: (job: JobPosting) => void;
   onSave: (job: JobPosting) => void;
   onViewDetails: (job: JobPosting) => void;
@@ -18,12 +18,14 @@ type SortDirection = 'asc' | 'desc';
 export function JobList({
   jobs,
   filterWeights,
-  selectedIndustries,
+  selectedIndustries: _selectedIndustries,
   onApply,
   onSave,
   onViewDetails,
   pageSize = 25,
 }: JobListProps) {
+  // selectedIndustries can be used for future filtering
+  void _selectedIndustries;
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<SortField>('matchScore');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');

@@ -1,4 +1,4 @@
-import React from 'react';
+// React JSX runtime handles this
 
 export interface FilterWeights {
   skillMatch: number;      // 0-100: How important skill matching is
