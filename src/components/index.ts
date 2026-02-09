@@ -1,7 +1,8 @@
-/**
- * Components Index
- * 
- * Re-exports all components for easier imports
- */
+// Job Finder UI Components
+export { JobFinder } from './JobFinder';
+export { JobList } from './JobList';
+export { FilterSliders, DEFAULT_FILTER_WEIGHTS } from './FilterSliders';
+export { CompanyPicker } from './CompanyPicker';
 
-export { default as LatexEditor, SimpleLatexTextarea } from './LatexEditor';
+// Re-export types
+export type { FilterWeights } from './FilterSliders';

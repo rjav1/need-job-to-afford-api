@@ -1,7 +1,9 @@
 import { detectFormFields, detectJobInfo, detectOpenEndedQuestions } from './detector';
 import { fillAllFields, previewFill, fillField } from './filler';
-import { storage } from '../lib/storage';
+import { storage, generateId } from '../lib/storage';
 import { DetectedField } from '../lib/types';
+import { logApplication } from '../lib/application-logger';
+import { recordAcceptance, recordCorrection } from '../lib/feedback-learner';
 
 // State
 let detectedFields: DetectedField[] = [];
@@ -208,7 +210,175 @@ function handleMessage(
       detectedFields = detectFormFields();
       sendResponse({ count: detectedFields.length });
       break;
+      
+    case 'AUTO_APPLY':
+      // Handle auto-apply from swarm mode
+      handleAutoApply(message.config).then(result => {
+        sendResponse({ result });
+      });
+      return true;
   }
+}
+
+// Handle auto-apply (for swarm mode and one-click)
+async function handleAutoApply(config: any): Promise<any> {
+  const profile = await storage.getProfile();
+  const jobInfo = detectJobInfo();
+  
+  // Re-detect fields on fresh page
+  detectedFields = detectFormFields();
+  
+  const result = {
+    success: false,
+    jobUrl: window.location.href,
+    jobTitle: jobInfo.title || 'Unknown Position',
+    company: jobInfo.company || 'Unknown Company',
+    fieldsFilled: 0,
+    totalFields: detectedFields.length,
+    stoppedAtReview: false,
+    submitted: false,
+    errors: [] as string[],
+    timestamp: new Date().toISOString(),
+  };
+  
+  if (!profile.firstName || !profile.email) {
+    result.errors.push('Profile incomplete');
+    return result;
+  }
+  
+  if (detectedFields.length === 0) {
+    result.errors.push('No form fields detected');
+    return result;
+  }
+  
+  try {
+    // Fill all fields
+    const { filled, failed } = await fillAllFields(detectedFields, profile, {
+      useAI: true,
+    });
+    
+    result.fieldsFilled = filled;
+    result.errors = failed;
+    result.success = filled > 0;
+    
+    // Log the application
+    await logApplication({
+      id: generateId(),
+      jobUrl: result.jobUrl,
+      jobTitle: result.jobTitle,
+      company: result.company,
+      fieldsDetected: result.totalFields,
+      fieldsFilled: result.fieldsFilled,
+      fieldsSkipped: failed.length,
+      status: result.success ? 'filled' : 'error',
+      mode: config?.submitAutomatically ? 'full-auto' : 'one-click',
+      stoppedAtReview: false,
+      timestamp: result.timestamp,
+      errors: result.errors,
+      fieldDetails: detectedFields.map(f => ({
+        fieldType: f.fieldType,
+        label: f.label,
+        filled: !failed.includes(f.label || f.fieldType),
+      })),
+    });
+    
+    // Check for review page and handle submission
+    if (config?.submitAutomatically) {
+      const submitBtn = findSubmitButton();
+      if (submitBtn) {
+        submitBtn.click();
+        result.submitted = true;
+      }
+    } else {
+      // Check if we should stop at review
+      if (isReviewPage()) {
+        result.stoppedAtReview = true;
+        showReviewNotification(result);
+      }
+    }
+    
+  } catch (error) {
+    result.errors.push(error instanceof Error ? error.message : 'Unknown error');
+  }
+  
+  return result;
+}
+
+// Find submit button on page
+function findSubmitButton(): HTMLButtonElement | null {
+  const selectors = [
+    'button[type="submit"]',
+    'input[type="submit"]',
+    'button[data-qa="submit-button"]',
+    'button[data-automation-id="submit"]',
+    '#submit-btn',
+    '.submit-button',
+    'button.btn-submit',
+  ];
+  
+  for (const selector of selectors) {
+    const btn = document.querySelector<HTMLButtonElement>(selector);
+    if (btn) return btn;
+  }
+  
+  return null;
+}
+
+// Check if current page is a review page
+function isReviewPage(): boolean {
+  const pageText = document.body.innerText.toLowerCase();
+  const reviewIndicators = [
+    'review your application',
+    'review application',
+    'submit application',
+    'confirm submission',
+    'review and submit',
+    'application summary',
+  ];
+  
+  return reviewIndicators.some(indicator => pageText.includes(indicator));
+}
+
+// Show notification when stopped at review page
+function showReviewNotification(result: any): void {
+  const notification = document.createElement('div');
+  notification.id = 'ai-apply-review-notification';
+  notification.innerHTML = `
+    <div style="
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 9999999;
+      max-width: 350px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    ">
+      <h3 style="margin: 0 0 10px; font-size: 16px;">📋 Ready for Review</h3>
+      <p style="margin: 5px 0; font-size: 14px;"><strong>${result.jobTitle}</strong></p>
+      <p style="margin: 5px 0; font-size: 14px;">${result.company}</p>
+      <p style="margin: 10px 0 0; font-size: 13px; opacity: 0.9;">
+        Filled ${result.fieldsFilled}/${result.totalFields} fields
+      </p>
+      <button onclick="this.parentElement.parentElement.remove()" style="
+        margin-top: 12px;
+        padding: 8px 16px;
+        background: white;
+        color: #667eea;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+      ">Got it</button>
+    </div>
+  `;
+  document.body.appendChild(notification);
+  
+  // Auto-dismiss after 10 seconds
+  setTimeout(() => notification.remove(), 10000);
 }
 
 // Initialize

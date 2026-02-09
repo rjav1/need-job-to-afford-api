@@ -26,8 +26,85 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(result.userProfile || null);
       });
       return true; // async response
+      
+    case 'NAVIGATE_TO_JOB':
+      // Open job URL in new tab
+      chrome.tabs.create({ url: message.url, active: true }, (tab) => {
+        sendResponse({ tabId: tab?.id });
+      });
+      return true;
+      
+    case 'APPLY_TO_JOB':
+      // Open job in new tab and apply
+      handleApplyToJob(message.job, message.config).then(result => {
+        sendResponse({ result });
+      });
+      return true;
+      
+    case 'GET_APPLY_CONFIG':
+      // Get apply configuration
+      chrome.storage.local.get('applyConfig', (result) => {
+        sendResponse(result.applyConfig || null);
+      });
+      return true;
+      
+    case 'SAVE_APPLY_CONFIG':
+      // Save apply configuration
+      chrome.storage.local.set({ applyConfig: message.config }, () => {
+        sendResponse({ success: true });
+      });
+      return true;
   }
 });
+
+// Handle apply to job request (swarm mode)
+async function handleApplyToJob(
+  job: { url: string; title: string; company: string },
+  config: any
+): Promise<any> {
+  return new Promise((resolve) => {
+    // Create new tab for the job
+    chrome.tabs.create({ url: job.url, active: false }, async (tab) => {
+      if (!tab?.id) {
+        resolve({ success: false, error: 'Failed to create tab' });
+        return;
+      }
+      
+      // Wait for page to load
+      const tabId = tab.id;
+      
+      const onCompleted = (details: chrome.webNavigation.WebNavigationFramedCallbackDetails) => {
+        if (details.tabId === tabId && details.frameId === 0) {
+          chrome.webNavigation.onCompleted.removeListener(onCompleted);
+          
+          // Send fill message to content script
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { 
+              type: 'AUTO_APPLY',
+              config,
+            }, (response) => {
+              // Close tab after applying (unless stopped at review)
+              if (response?.result && !response.result.stoppedAtReview) {
+                setTimeout(() => {
+                  chrome.tabs.remove(tabId);
+                }, 2000);
+              }
+              resolve(response?.result || { success: false, error: 'No response from content script' });
+            });
+          }, 2000); // Wait 2s for page to fully render
+        }
+      };
+      
+      chrome.webNavigation.onCompleted.addListener(onCompleted);
+      
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        chrome.webNavigation.onCompleted.removeListener(onCompleted);
+        resolve({ success: false, error: 'Page load timeout' });
+      }, 30000);
+    });
+  });
+}
 
 // Log application to history
 async function logApplication(data: {
