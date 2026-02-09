@@ -4,10 +4,84 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Job Applier</title>
-  <link rel="stylesheet" href="assets/popup-DuTdD8cS.css">
+  <style>
+    body {
+      width: 300px;
+      height: 400px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+    }
+    .header {
+      font-weight: bold;
+      margin-bottom: 16px;
+      color: #333;
+    }
+    .button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 8px;
+    }
+    .button:hover {
+      background: #0056b3;
+    }
+    .status {
+      margin-top: 16px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="module" src="assets/popup-BIYmX8fN.js"></script>
+  <div class="header">🍟 AI Job Applier</div>
+  
+  <button class="button" id="detectFields">Detect Form Fields</button>
+  <button class="button" id="autoFill">Auto-Fill Form</button>
+  <button class="button" id="openSettings">Settings</button>
+  
+  <div class="status" id="status">
+    Extension loaded. Navigate to a job application page and click "Detect Form Fields" to start.
+  </div>
+
+  <script>
+    document.getElementById('detectFields').addEventListener('click', function() {
+      document.getElementById('status').textContent = 'Detecting form fields...';
+      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        chrome.tabs.sendMessage(tabs[0].id, {action: 'detectFields'}, function(response) {
+          if (response) {
+            document.getElementById('status').textContent = `Found ${response.fieldCount} form fields`;
+          } else {
+            document.getElementById('status').textContent = 'No form fields detected';
+          }
+        });
+      });
+    });
+
+    document.getElementById('autoFill').addEventListener('click', function() {
+      document.getElementById('status').textContent = 'Auto-filling form...';
+      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        chrome.tabs.sendMessage(tabs[0].id, {action: 'autoFill'}, function(response) {
+          if (response && response.success) {
+            document.getElementById('status').textContent = 'Form filled successfully!';
+          } else {
+            document.getElementById('status').textContent = 'Auto-fill failed or no form detected';
+          }
+        });
+      });
+    });
+
+    document.getElementById('openSettings').addEventListener('click', function() {
+      chrome.runtime.openOptionsPage();
+    });
+  </script>
 </body>
 </html>
