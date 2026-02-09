@@ -330,9 +330,30 @@ function App() {
     ] })
   ] });
 }
-const container = document.getElementById("root");
-if (container) {
-  const root = createRoot(container);
-  root.render(/* @__PURE__ */ jsxRuntimeExports.jsx(App, {}));
+console.log('Popup script loading...');
+
+function mountApp() {
+  const container = document.getElementById("root");
+  console.log('Mounting app, container:', container);
+  
+  if (container) {
+    try {
+      const root = createRoot(container);
+      console.log('Root created, rendering App...');
+      root.render(/* @__PURE__ */ jsxRuntimeExports.jsx(App, {}));
+      console.log('App rendered successfully');
+    } catch (error) {
+      console.error('Error rendering app:', error);
+      container.innerHTML = '<div style="padding: 16px; color: red;">Error loading extension: ' + error.message + '</div>';
+    }
+  } else {
+    console.error('Root container not found!');
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mountApp);
+} else {
+  mountApp();
 }
 //# sourceMappingURL=popup-BIYmX8fN.js.map
