@@ -108,11 +108,30 @@ function getLabelText(element: HTMLElement): string {
   return '';
 }
 
+// Custom dropdown selectors for Greenhouse, Workday, and other ATS platforms
+const CUSTOM_DROPDOWN_SELECTORS = [
+  'button[aria-haspopup]',
+  '[role="combobox"]',
+  '[role="listbox"]',
+  // Greenhouse specific
+  '[data-qa="dropdown"]',
+  '.select__control',
+  '[class*="select-dropdown"]',
+  // Workday specific
+  '[data-automation-id*="select"]',
+  '[data-automation-id*="dropdown"]',
+  '.WDFC[data-automation-widget="wd-popup"]',
+  // Generic custom selects
+  '.custom-select',
+  '[class*="dropdown-trigger"]',
+  '[class*="select-trigger"]',
+].join(', ');
+
 // Main detection function - uses fast regex-based detection
 export function detectFormFields(): DetectedField[] {
   const fields: DetectedField[] = [];
   
-  // Find all form inputs
+  // Find all form inputs (standard elements)
   const inputs = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
     'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select'
   );
@@ -139,7 +158,61 @@ export function detectFormFields(): DetectedField[] {
     }
   }
   
+  // Find custom dropdown components (Greenhouse, Workday, etc.)
+  const customDropdowns = document.querySelectorAll<HTMLElement>(CUSTOM_DROPDOWN_SELECTORS);
+  
+  for (const dropdown of customDropdowns) {
+    // Skip if already captured or invisible
+    if (!isVisible(dropdown)) continue;
+    if (fields.some(f => f.element === dropdown || f.element.contains(dropdown) || dropdown.contains(f.element))) continue;
+    
+    const label = getLabelText(dropdown) || getDropdownLabel(dropdown);
+    const { type, confidence } = detectFieldType(label, 'select', dropdown.id || '');
+    
+    if (label || type !== 'unknown') {
+      fields.push({
+        element: dropdown as unknown as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+        fieldType: type,
+        label: label,
+        isRequired: dropdown.getAttribute('aria-required') === 'true' || 
+                    dropdown.closest('[data-required="true"]') !== null ||
+                    !!dropdown.querySelector('[class*="required"]'),
+        confidence: Math.max(confidence, 0.6), // Custom dropdowns get at least 0.6 confidence
+      });
+    }
+  }
+  
   return fields;
+}
+
+// Get label for custom dropdown components
+function getDropdownLabel(element: HTMLElement): string {
+  // Check for aria-labelledby
+  const labelledBy = element.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const labelEl = document.getElementById(labelledBy);
+    if (labelEl) return labelEl.textContent?.trim() || '';
+  }
+  
+  // Check for nearby label by traversing up
+  let parent = element.parentElement;
+  for (let i = 0; i < 3 && parent; i++) {
+    const label = parent.querySelector('label, [class*="label"]');
+    if (label && !element.contains(label)) {
+      return label.textContent?.trim() || '';
+    }
+    // Check previous sibling
+    const prev = parent.previousElementSibling;
+    if (prev && (prev.tagName === 'LABEL' || prev.classList.toString().includes('label'))) {
+      return prev.textContent?.trim() || '';
+    }
+    parent = parent.parentElement;
+  }
+  
+  // Check for title or data attributes
+  return element.getAttribute('title') || 
+         element.getAttribute('data-label') || 
+         element.getAttribute('data-placeholder') || '';
 }
 
 // Universal detection function - handles any site including custom components
@@ -333,4 +406,219 @@ export function isJobApplicationPage(): boolean {
   const hasJobFields = fields.some(f => jobFieldTypes.includes(f.fieldType));
   
   return hasJobFields;
+}
+
+// ============================================
+// Multi-step Form Navigation Support
+// ============================================
+
+// Navigation button patterns for wizard-style forms
+const NAVIGATION_BUTTON_PATTERNS = {
+  next: [
+    /^next$/i, /^continue$/i, /^proceed$/i, /^forward$/i,
+    /next\s*step/i, /continue\s*to/i, /save\s*(&|and)\s*continue/i,
+    /^weiter$/i, /^suivant$/i, /^siguiente$/i, // German, French, Spanish
+  ],
+  previous: [
+    /^back$/i, /^previous$/i, /^go\s*back$/i,
+    /^zurück$/i, /^précédent$/i, /^anterior$/i,
+  ],
+  submit: [
+    /^submit$/i, /submit\s*application/i, /^apply$/i, /^apply\s*now$/i,
+    /^finish$/i, /^complete$/i, /^done$/i, /^send$/i,
+  ],
+};
+
+// Selectors for navigation buttons
+const NAVIGATION_BUTTON_SELECTORS = [
+  'button[type="submit"]',
+  'button[type="button"]',
+  'input[type="submit"]',
+  'a.btn', 'a.button',
+  '[role="button"]',
+  // ATS-specific
+  '[data-automation-id*="button"]', // Workday
+  '[data-qa*="button"]', // Greenhouse
+  '.application-actions button',
+  '.form-actions button',
+  '.wizard-actions button',
+  '.step-actions button',
+].join(', ');
+
+export interface NavigationButton {
+  element: HTMLElement;
+  type: 'next' | 'previous' | 'submit';
+  text: string;
+  confidence: number;
+}
+
+export interface WizardFormInfo {
+  isWizard: boolean;
+  currentStep?: number;
+  totalSteps?: number;
+  stepIndicators: HTMLElement[];
+  navigationButtons: NavigationButton[];
+  progressElement?: HTMLElement;
+}
+
+// Detect wizard/multi-step form structure
+export function detectWizardForm(): WizardFormInfo {
+  const result: WizardFormInfo = {
+    isWizard: false,
+    stepIndicators: [],
+    navigationButtons: [],
+  };
+  
+  // Look for step indicators
+  const stepSelectors = [
+    '.step', '.wizard-step', '.progress-step', '[class*="step-indicator"]',
+    '.stepper', '[role="progressbar"]', '.breadcrumb-step',
+    '[data-automation-id*="step"]', // Workday
+    '.application-progress', // Greenhouse
+  ];
+  
+  for (const selector of stepSelectors) {
+    const elements = document.querySelectorAll<HTMLElement>(selector);
+    if (elements.length > 1) {
+      result.stepIndicators = Array.from(elements);
+      result.isWizard = true;
+      
+      // Try to determine current and total steps
+      const active = Array.from(elements).findIndex(
+        el => el.classList.contains('active') || 
+              el.classList.contains('current') ||
+              el.getAttribute('aria-current') === 'step'
+      );
+      if (active >= 0) {
+        result.currentStep = active + 1;
+        result.totalSteps = elements.length;
+      }
+      break;
+    }
+  }
+  
+  // Look for progress bar with step info
+  const progressBar = document.querySelector<HTMLElement>(
+    '[role="progressbar"], .progress-bar, .application-progress, [class*="wizard-progress"]'
+  );
+  if (progressBar) {
+    result.progressElement = progressBar;
+    result.isWizard = true;
+    
+    // Try to extract step info from aria attributes or text
+    const valueNow = progressBar.getAttribute('aria-valuenow');
+    const valueMax = progressBar.getAttribute('aria-valuemax');
+    if (valueNow && valueMax) {
+      result.currentStep = parseInt(valueNow);
+      result.totalSteps = parseInt(valueMax);
+    }
+  }
+  
+  // Detect navigation buttons
+  result.navigationButtons = detectNavigationButtons();
+  
+  // If we found next/previous buttons, it's likely a wizard
+  if (result.navigationButtons.some(b => b.type === 'next' || b.type === 'previous')) {
+    result.isWizard = true;
+  }
+  
+  return result;
+}
+
+// Detect navigation buttons (Next, Previous, Submit)
+export function detectNavigationButtons(): NavigationButton[] {
+  const buttons: NavigationButton[] = [];
+  const candidates = document.querySelectorAll<HTMLElement>(NAVIGATION_BUTTON_SELECTORS);
+  
+  for (const element of candidates) {
+    if (!isVisible(element)) continue;
+    
+    // Get button text
+    const text = (
+      element.textContent?.trim() ||
+      element.getAttribute('aria-label') ||
+      element.getAttribute('value') ||
+      ''
+    ).toLowerCase();
+    
+    if (!text) continue;
+    
+    // Check against patterns
+    for (const [type, patterns] of Object.entries(NAVIGATION_BUTTON_PATTERNS) as [keyof typeof NAVIGATION_BUTTON_PATTERNS, RegExp[]][]) {
+      for (const pattern of patterns) {
+        if (pattern.test(text)) {
+          buttons.push({
+            element,
+            type,
+            text: element.textContent?.trim() || '',
+            confidence: 0.85,
+          });
+          break;
+        }
+      }
+    }
+  }
+  
+  // Deduplicate - prefer higher confidence or first found
+  const unique = new Map<HTMLElement, NavigationButton>();
+  for (const btn of buttons) {
+    const existing = unique.get(btn.element);
+    if (!existing || btn.confidence > existing.confidence) {
+      unique.set(btn.element, btn);
+    }
+  }
+  
+  return Array.from(unique.values());
+}
+
+// Get the next button if present
+export function getNextButton(): HTMLElement | null {
+  const buttons = detectNavigationButtons();
+  const nextBtn = buttons.find(b => b.type === 'next');
+  return nextBtn?.element || null;
+}
+
+// Get the submit button if present
+export function getSubmitButton(): HTMLElement | null {
+  const buttons = detectNavigationButtons();
+  const submitBtn = buttons.find(b => b.type === 'submit');
+  return submitBtn?.element || null;
+}
+
+// Check if we're on the final step of a wizard
+export function isOnFinalStep(): boolean {
+  const wizard = detectWizardForm();
+  
+  if (!wizard.isWizard) return true; // Not a wizard, treat as final
+  
+  // If we have step info, check if current == total
+  if (wizard.currentStep && wizard.totalSteps) {
+    return wizard.currentStep >= wizard.totalSteps;
+  }
+  
+  // If we have a submit button but no next button, likely final step
+  const hasSubmit = wizard.navigationButtons.some(b => b.type === 'submit');
+  const hasNext = wizard.navigationButtons.some(b => b.type === 'next');
+  
+  return hasSubmit && !hasNext;
+}
+
+// Click the next/continue button to advance the form
+export async function advanceToNextStep(): Promise<boolean> {
+  const nextBtn = getNextButton();
+  
+  if (!nextBtn) {
+    console.log('[Detector] No next button found');
+    return false;
+  }
+  
+  console.log('[Detector] Clicking next button:', nextBtn.textContent?.trim());
+  
+  // Simulate click
+  nextBtn.click();
+  
+  // Wait for potential page update
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  return true;
 }
